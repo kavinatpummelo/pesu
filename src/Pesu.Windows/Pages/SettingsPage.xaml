@@ -4,7 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    RequestedTheme="Light">
     <ScrollViewer>
         <StackPanel Padding="48,36" Spacing="18">
             <TextBlock Text="PREFERENCES" Foreground="{StaticResource PesuMutedBrush}" FontSize="12" FontWeight="SemiBold" />
@@ -27,6 +28,42 @@
                     <CheckBox Content="Keep local audio files" IsChecked="True" />
                 </StackPanel>
             </Border>
+
+            <Border Padding="22" CornerRadius="12" Background="White">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Daytona Build" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="Configure optional build-from-meeting workflow." Foreground="{StaticResource PesuMutedBrush}" />
+                    <PasswordBox PlaceholderText="Daytona API key" Width="320" />
+                    <ComboBox Width="220" PlaceholderText="AI provider">
+                        <ComboBoxItem Content="OpenAI" />
+                        <ComboBoxItem Content="Azure OpenAI" />
+                    </ComboBox>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="22" CornerRadius="12" Background="White">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Azure OpenAI" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="Endpoint, deployment, and key configuration." Foreground="{StaticResource PesuMutedBrush}" />
+                    <TextBox PlaceholderText="https://resource.openai.azure.com" Width="420" />
+                    <TextBox PlaceholderText="Deployment name" Width="260" />
+                    <PasswordBox PlaceholderText="Azure API key" Width="320" />
+                </StackPanel>
+            </Border>
+
+            <Border Padding="22" CornerRadius="12" Background="White">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Pets and Sidebar" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="Visual companion and quick visibility toggles." Foreground="{StaticResource PesuMutedBrush}" />
+                    <CheckBox Content="Enable desktop pet" IsChecked="True" />
+                    <CheckBox Content="Show Stats tab" IsChecked="True" />
+                    <CheckBox Content="Show Decisions in summary" IsChecked="True" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Some settings controls are scaffold placeholders and will be wired to persistent storage in the next iteration."
+                       TextWrapping="Wrap"
+                       Foreground="{StaticResource PesuMutedBrush}" />
         </StackPanel>
     </ScrollViewer>
 </Page>
