@@ -1,7 +1,11 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Speech.AudioFormat;
 using System.Speech.Recognition;
 using System.Threading;
+using NAudio.Wave;
 using Pesu.Core.Models;
 using Pesu.Core.Services;
 
@@ -12,10 +16,32 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
     private readonly List<TranscriptSegment> _segments = [];
     private readonly object _sync = new();
     private SpeechRecognitionEngine? _recognizer;
+    private WaveInEvent? _waveIn;
+    private QueueWaveStream? _audioStream;
     private Stopwatch _stopwatch = new();
     private SynchronizationContext? _uiContext;
 
     public event EventHandler<TranscriptSegment>? TranscriptSegmentCaptured;
+
+    public IReadOnlyList<MicrophoneOption> GetAvailableMicrophones()
+    {
+        var options = new List<MicrophoneOption>
+        {
+            new("default", "System Default", "Uses current Windows default input device")
+        };
+
+        for (var i = 0; i < WaveIn.DeviceCount; i++)
+        {
+            var caps = WaveIn.GetCapabilities(i);
+            options.Add(new MicrophoneOption(
+                i.ToString(CultureInfo.InvariantCulture),
+                caps.ProductName,
+                $"{caps.Channels} channel(s), {caps.ManufacturerId}"
+            ));
+        }
+
+        return options;
+    }
 
     public async Task StartAsync(string? microphoneDeviceId, CancellationToken cancellationToken = default)
     {
@@ -40,9 +66,32 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             throw new InvalidOperationException("No Windows speech recognizer is installed. Install a Speech language pack in Windows Settings.");
         }
 
+        var deviceNumber = ParseDeviceNumber(microphoneDeviceId);
+        var waveFormat = new WaveFormat(16000, 16, 1);
+        _audioStream = new QueueWaveStream(waveFormat.AverageBytesPerSecond * 2);
+
+        _waveIn = new WaveInEvent
+        {
+            DeviceNumber = deviceNumber,
+            WaveFormat = waveFormat,
+            BufferMilliseconds = 200,
+            NumberOfBuffers = 3
+        };
+        _waveIn.DataAvailable += OnWaveDataAvailable;
+        _waveIn.StartRecording();
+
         _recognizer = new SpeechRecognitionEngine(recognizerInfo);
-        _recognizer.SetInputToDefaultAudioDevice();
         _recognizer.LoadGrammar(new DictationGrammar());
+        _recognizer.SetInputToAudioStream(
+            _audioStream,
+            new SpeechAudioFormatInfo(
+                EncodingFormat.Pcm,
+                waveFormat.SampleRate,
+                waveFormat.BitsPerSample,
+                waveFormat.Channels,
+                waveFormat.AverageBytesPerSecond,
+                waveFormat.BlockAlign,
+                null));
         _recognizer.SpeechRecognized += OnSpeechRecognized;
         _recognizer.RecognizeCompleted += OnRecognizeCompleted;
         _recognizer.RecognizeAsync(RecognizeMode.Multiple);
@@ -58,37 +107,72 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         }
     }
 
+    private static int ParseDeviceNumber(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || id.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        return int.TryParse(id, out var parsed) ? parsed : 0;
+    }
+
     private async Task StopInternalAsync()
     {
         var recognizer = _recognizer;
-        if (recognizer is null)
-        {
-            return;
-        }
+        var waveIn = _waveIn;
+        var audioStream = _audioStream;
 
-        try
+        if (waveIn is not null)
         {
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            EventHandler<RecognizeCompletedEventArgs>? handler = null;
-            handler = (_, _) =>
+            try
             {
-                recognizer.RecognizeCompleted -= handler;
-                tcs.TrySetResult(true);
-            };
-
-            recognizer.RecognizeCompleted += handler;
-            recognizer.RecognizeAsyncStop();
-            await tcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                waveIn.DataAvailable -= OnWaveDataAvailable;
+                waveIn.StopRecording();
+            }
+            catch
+            {
+            }
+            waveIn.Dispose();
+            _waveIn = null;
         }
-        catch
+
+        audioStream?.Complete();
+
+        if (recognizer is not null)
         {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler<RecognizeCompletedEventArgs>? handler = null;
+                handler = (_, _) =>
+                {
+                    recognizer.RecognizeCompleted -= handler;
+                    tcs.TrySetResult(true);
+                };
+
+                recognizer.RecognizeCompleted += handler;
+                recognizer.RecognizeAsyncCancel();
+                await tcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch
+            {
+            }
+
+            recognizer.SpeechRecognized -= OnSpeechRecognized;
+            recognizer.RecognizeCompleted -= OnRecognizeCompleted;
+            recognizer.Dispose();
+            _recognizer = null;
         }
 
-        recognizer.SpeechRecognized -= OnSpeechRecognized;
-        recognizer.RecognizeCompleted -= OnRecognizeCompleted;
-        recognizer.Dispose();
-        _recognizer = null;
+        audioStream?.Dispose();
+        _audioStream = null;
         _stopwatch.Stop();
+    }
+
+    private void OnWaveDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        _audioStream?.Enqueue(e.Buffer, 0, e.BytesRecorded);
     }
 
     private void OnSpeechRecognized(object? sender, SpeechRecognizedEventArgs args)
@@ -124,11 +208,9 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         }
 
         var message = $"Speech recognition stopped: {args.Error.Message}";
-
         var seconds = (int)Math.Max(0, _stopwatch.Elapsed.TotalSeconds);
         var timestamp = $"{seconds / 60:00}:{seconds % 60:00}";
-        var segment = new TranscriptSegment(Guid.NewGuid().ToString("N"), timestamp, "System", message);
-        RaiseTranscriptSegment(segment);
+        RaiseTranscriptSegment(new TranscriptSegment(Guid.NewGuid().ToString("N"), timestamp, "System", message));
     }
 
     private void RaiseTranscriptSegment(TranscriptSegment segment)
@@ -146,5 +228,89 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         }
 
         _uiContext.Post(_ => handler(this, segment), null);
+    }
+
+    private sealed class QueueWaveStream : Stream
+    {
+        private readonly BlockingCollection<byte[]> _queue;
+        private byte[]? _currentChunk;
+        private int _currentOffset;
+
+        public QueueWaveStream(int boundedCapacity)
+        {
+            _queue = new BlockingCollection<byte[]>(boundedCapacity: Math.Max(8, boundedCapacity / 3200));
+        }
+
+        public void Enqueue(byte[] buffer, int offset, int count)
+        {
+            if (_queue.IsAddingCompleted || count <= 0)
+            {
+                return;
+            }
+
+            var copy = new byte[count];
+            Buffer.BlockCopy(buffer, offset, copy, 0, count);
+            _queue.Add(copy);
+        }
+
+        public void Complete()
+        {
+            if (!_queue.IsAddingCompleted)
+            {
+                _queue.CompleteAdding();
+            }
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            while (true)
+            {
+                if (_currentChunk is not null)
+                {
+                    var remaining = _currentChunk.Length - _currentOffset;
+                    if (remaining > 0)
+                    {
+                        var toCopy = Math.Min(remaining, count);
+                        Buffer.BlockCopy(_currentChunk, _currentOffset, buffer, offset, toCopy);
+                        _currentOffset += toCopy;
+                        if (_currentOffset >= _currentChunk.Length)
+                        {
+                            _currentChunk = null;
+                            _currentOffset = 0;
+                        }
+                        return toCopy;
+                    }
+                    _currentChunk = null;
+                    _currentOffset = 0;
+                }
+
+                if (!_queue.TryTake(out var next, Timeout.Infinite))
+                {
+                    return 0;
+                }
+
+                _currentChunk = next;
+            }
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Complete();
+                _queue.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 }

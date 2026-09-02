@@ -6,6 +6,8 @@ public interface IAudioCaptureService
 {
     event EventHandler<TranscriptSegment>? TranscriptSegmentCaptured;
 
+    IReadOnlyList<MicrophoneOption> GetAvailableMicrophones();
+
     Task StartAsync(string? microphoneDeviceId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TranscriptSegment>> StopAsync(CancellationToken cancellationToken = default);
 }

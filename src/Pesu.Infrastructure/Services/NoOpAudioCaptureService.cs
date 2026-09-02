@@ -7,6 +7,14 @@ public sealed class NoOpAudioCaptureService : IAudioCaptureService
 {
     public event EventHandler<TranscriptSegment>? TranscriptSegmentCaptured;
 
+    public IReadOnlyList<MicrophoneOption> GetAvailableMicrophones()
+    {
+        return
+        [
+            new MicrophoneOption("default", "System Default", "Uses the current Windows default input")
+        ];
+    }
+
     public Task StartAsync(string? microphoneDeviceId, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;

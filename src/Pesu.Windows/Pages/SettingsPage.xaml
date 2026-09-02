@@ -24,7 +24,13 @@
                 <StackPanel Spacing="8">
                     <TextBlock Text="Recording" FontSize="20" FontWeight="SemiBold" />
                     <TextBlock Text="Choose microphone and local retention options." Foreground="{StaticResource PesuMutedBrush}" />
-                    <ComboBox PlaceholderText="System default microphone" Width="260" />
+                    <ComboBox
+                        Width="320"
+                        ItemsSource="{Binding Microphones}"
+                        DisplayMemberPath="Name"
+                        SelectedValuePath="Id"
+                        SelectedValue="{Binding SelectedMicrophoneId, Mode=TwoWay}" />
+                    <TextBlock Text="{Binding SelectedMicrophoneId}" Foreground="{StaticResource PesuMutedBrush}" FontSize="12" />
                     <CheckBox Content="Keep local audio files" IsChecked="True" />
                 </StackPanel>
             </Border>

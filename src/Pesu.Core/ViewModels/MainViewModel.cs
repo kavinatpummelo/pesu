@@ -17,6 +17,7 @@ public sealed class MainViewModel : ObservableObject
     private string _liveTranscriptDisplay = "Start speaking and your live transcript will appear here.";
     private string _calendarStatus = "Not connected";
     private string _calendarDetail = "Connect your calendar source in Settings.";
+    private string _selectedMicrophoneId = "default";
 
     public MainViewModel(
         IMeetingRepository meetingRepository,
@@ -28,6 +29,11 @@ public sealed class MainViewModel : ObservableObject
         _notesService = notesService;
         _audioCaptureService.TranscriptSegmentCaptured += OnTranscriptSegmentCaptured;
         Meetings = new List<Meeting>();
+        Microphones = _audioCaptureService.GetAvailableMicrophones();
+        if (Microphones.Count > 0)
+        {
+            _selectedMicrophoneId = Microphones[0].Id;
+        }
         NewRecordingCommand = new RelayCommand(StartRecording);
         StopRecordingCommand = new RelayCommand(StopRecording, () => IsRecording);
     }
@@ -76,6 +82,14 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _calendarDetail, value);
     }
 
+    public IReadOnlyList<MicrophoneOption> Microphones { get; private set; }
+
+    public string SelectedMicrophoneId
+    {
+        get => _selectedMicrophoneId;
+        set => SetProperty(ref _selectedMicrophoneId, value);
+    }
+
     public string LiveTranscriptDisplay
     {
         get => _liveTranscriptDisplay;
@@ -104,6 +118,11 @@ public sealed class MainViewModel : ObservableObject
     {
         Meetings = await _meetingRepository.ListAsync(cancellationToken);
         SelectedMeeting = Meetings.FirstOrDefault() ?? Meeting.Empty;
+        Microphones = _audioCaptureService.GetAvailableMicrophones();
+        if (Microphones.Count > 0 && !Microphones.Any(x => x.Id == SelectedMicrophoneId))
+        {
+            SelectedMicrophoneId = Microphones[0].Id;
+        }
         RefreshDerivedCollections();
     }
 
@@ -136,7 +155,7 @@ public sealed class MainViewModel : ObservableObject
     {
         try
         {
-            await _audioCaptureService.StartAsync(microphoneDeviceId: null);
+            await _audioCaptureService.StartAsync(microphoneDeviceId: SelectedMicrophoneId);
             CaptureStatus = "Recording system audio + microphone locally";
         }
         catch (Exception ex)
@@ -204,6 +223,8 @@ public sealed class MainViewModel : ObservableObject
     private void RefreshDerivedCollections()
     {
         RaisePropertyChanged(nameof(Meetings));
+        RaisePropertyChanged(nameof(Microphones));
+        RaisePropertyChanged(nameof(SelectedMicrophoneId));
         RaisePropertyChanged(nameof(PresentMeetings));
         RaisePropertyChanged(nameof(PastMeetings));
         RaisePropertyChanged(nameof(FutureMeetings));
