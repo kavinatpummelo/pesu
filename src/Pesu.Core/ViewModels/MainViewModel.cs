@@ -12,6 +12,7 @@ public sealed class MainViewModel : ObservableObject
     private AppScreen _currentScreen = AppScreen.Present;
     private Meeting _selectedMeeting = Meeting.Empty;
     private bool _isRecording;
+    private bool _isStartingRecording;
     private string _captureStatus = "Ready";
     private string _calendarStatus = "Not connected";
     private string _calendarDetail = "Connect your calendar source in Settings.";
@@ -105,6 +106,15 @@ public sealed class MainViewModel : ObservableObject
 
     private void StartRecording()
     {
+        if (IsRecording || _isStartingRecording)
+        {
+            return;
+        }
+
+        _isStartingRecording = true;
+        IsRecording = true;
+        CaptureStatus = "Preparing local capture...";
+        CurrentScreen = AppScreen.Recording;
         _ = StartRecordingAsync();
     }
 
@@ -115,24 +125,20 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task StartRecordingAsync()
     {
-        if (IsRecording)
-        {
-            return;
-        }
-
         try
         {
-            CaptureStatus = "Preparing local capture...";
             await _audioCaptureService.StartAsync(microphoneDeviceId: null);
-            IsRecording = true;
             CaptureStatus = "Recording system audio + microphone locally";
-            CurrentScreen = AppScreen.Recording;
         }
         catch (Exception ex)
         {
             IsRecording = false;
             CaptureStatus = $"Recording failed: {ex.Message}";
             CurrentScreen = AppScreen.Present;
+        }
+        finally
+        {
+            _isStartingRecording = false;
         }
     }
 

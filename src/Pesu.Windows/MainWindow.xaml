@@ -23,16 +23,16 @@
             </controls:NavigationView.PaneHeader>
 
             <controls:NavigationView.MenuItems>
-                <controls:NavigationViewItem Content="Present" Tag="Present" Icon="Home" />
-                <controls:NavigationViewItem Content="Past" Tag="Past" Icon="Library" />
-                <controls:NavigationViewItem Content="Future" Tag="Future" Icon="Calendar" />
-                <controls:NavigationViewItem Content="Stats" Tag="Stats" Icon="AllApps" />
-                <controls:NavigationViewItem Content="Settings" Tag="Settings" Icon="Setting" />
+                <controls:NavigationViewItem Content="Present" Tag="Present" Icon="Home" Foreground="{StaticResource PesuInkBrush}" />
+                <controls:NavigationViewItem Content="Past" Tag="Past" Icon="Library" Foreground="{StaticResource PesuInkBrush}" />
+                <controls:NavigationViewItem Content="Future" Tag="Future" Icon="Calendar" Foreground="{StaticResource PesuInkBrush}" />
+                <controls:NavigationViewItem Content="Stats" Tag="Stats" Icon="AllApps" Foreground="{StaticResource PesuInkBrush}" />
+                <controls:NavigationViewItem Content="Settings" Tag="Settings" Icon="Setting" Foreground="{StaticResource PesuInkBrush}" />
             </controls:NavigationView.MenuItems>
 
             <controls:NavigationView.FooterMenuItems>
-                <controls:NavigationViewItem Content="Recording" Tag="Recording" Icon="Microphone" />
-                <controls:NavigationViewItem Content="Summary" Tag="Summary" Icon="Document" />
+                <controls:NavigationViewItem Content="Recording" Tag="Recording" Icon="Microphone" Foreground="{StaticResource PesuInkBrush}" />
+                <controls:NavigationViewItem Content="Summary" Tag="Summary" Icon="Document" Foreground="{StaticResource PesuInkBrush}" />
             </controls:NavigationView.FooterMenuItems>
 
             <Frame x:Name="ContentFrame" Background="{StaticResource PesuPaperBrush}" />
