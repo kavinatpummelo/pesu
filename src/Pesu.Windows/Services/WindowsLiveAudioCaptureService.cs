@@ -111,12 +111,14 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             return;
         }
 
-        var message = args.Status switch
-        {
-            SpeechRecognitionResultStatus.PrivacyStatementDeclined => "Speech privacy settings are disabled.",
-            SpeechRecognitionResultStatus.AudioQualityFailure => "Microphone audio quality is too low.",
-            _ => $"Speech recognition stopped: {args.Status}"
-        };
+        var statusText = args.Status.ToString();
+        var message = statusText.Contains("Privacy", StringComparison.OrdinalIgnoreCase)
+            ? "Speech privacy settings are disabled."
+            : args.Status switch
+            {
+                SpeechRecognitionResultStatus.AudioQualityFailure => "Microphone audio quality is too low.",
+                _ => $"Speech recognition stopped: {args.Status}"
+            };
 
         var seconds = (int)Math.Max(0, _stopwatch.Elapsed.TotalSeconds);
         var timestamp = $"{seconds / 60:00}:{seconds % 60:00}";
