@@ -1,0 +1,41 @@
+<Window
+    x:Class="Pesu.Windows.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
+    mc:Ignorable="d"
+    Title="Pesu">
+    <Grid Background="{StaticResource PesuPaperBrush}">
+        <controls:NavigationView
+            x:Name="ShellNav"
+            PaneDisplayMode="Left"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            SelectionChanged="ShellNav_OnSelectionChanged"
+            Background="{StaticResource PesuPaperBrush}">
+            <controls:NavigationView.PaneHeader>
+                <StackPanel Margin="16,16,16,10">
+                    <TextBlock Text="Pēsu" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource PesuInkBrush}" />
+                    <TextBlock Text="Local meeting intelligence" Margin="0,4,0,0" Foreground="{StaticResource PesuMutedBrush}" />
+                </StackPanel>
+            </controls:NavigationView.PaneHeader>
+
+            <controls:NavigationView.MenuItems>
+                <controls:NavigationViewItem Content="Present" Tag="Present" Icon="Home" />
+                <controls:NavigationViewItem Content="Past" Tag="Past" Icon="Library" />
+                <controls:NavigationViewItem Content="Future" Tag="Future" Icon="Calendar" />
+                <controls:NavigationViewItem Content="Stats" Tag="Stats" Icon="AllApps" />
+                <controls:NavigationViewItem Content="Settings" Tag="Settings" Icon="Setting" />
+            </controls:NavigationView.MenuItems>
+
+            <controls:NavigationView.FooterMenuItems>
+                <controls:NavigationViewItem Content="Recording" Tag="Recording" Icon="Microphone" />
+                <controls:NavigationViewItem Content="Summary" Tag="Summary" Icon="Document" />
+            </controls:NavigationView.FooterMenuItems>
+
+            <Frame x:Name="ContentFrame" Background="{StaticResource PesuPaperBrush}" />
+        </controls:NavigationView>
+    </Grid>
+</Window>
