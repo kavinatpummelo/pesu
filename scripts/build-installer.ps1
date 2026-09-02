@@ -109,7 +109,13 @@ if (-not (Test-Path $distDir)) {
 }
 
 Write-Host "Building Setup.exe with Inno Setup..."
-& $isccPath "/DMyAppVersion=$Version" "/DSourceDir=\"$publishDir\"" "/DOutputDir=\"$distDir\"" $issPath
+$issArgs = @(
+    "/DMyAppVersion=$Version",
+    "/DSourceDir=$publishDir",
+    "/DOutputDir=$distDir",
+    $issPath
+)
+& $isccPath @issArgs
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup compilation failed (exit code: $LASTEXITCODE)."
 }
