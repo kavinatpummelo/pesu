@@ -7,7 +7,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not $IsWindows) {
+function Test-RunningOnWindows {
+    return [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+}
+
+if (-not (Test-RunningOnWindows)) {
     throw "build-installer.ps1 must be run on Windows."
 }
 

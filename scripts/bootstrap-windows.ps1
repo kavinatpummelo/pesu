@@ -7,6 +7,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Test-RunningOnWindows {
+    return [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+}
+
 function Test-DotNet8Sdk {
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
         return $false
@@ -67,7 +71,7 @@ function Install-WithWinget {
     }
 }
 
-if (-not $IsWindows) {
+if (-not (Test-RunningOnWindows)) {
     throw "bootstrap-windows.ps1 must be run on Windows."
 }
 

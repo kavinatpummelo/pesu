@@ -2,7 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $issues = @()
 
-if (-not $IsWindows) {
+function Test-RunningOnWindows {
+    return [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+}
+
+if (-not (Test-RunningOnWindows)) {
     $issues += "This script must run on Windows."
 }
 
