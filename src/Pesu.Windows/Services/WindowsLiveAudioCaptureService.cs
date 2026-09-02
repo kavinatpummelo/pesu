@@ -146,9 +146,12 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         {
             try
             {
-                _waveIn?.DataAvailable -= OnWaveDataAvailable;
-                _waveIn?.StopRecording();
-                _waveIn?.Dispose();
+                if (_waveIn is not null)
+                {
+                    _waveIn.DataAvailable -= OnWaveDataAvailable;
+                    _waveIn.StopRecording();
+                    _waveIn.Dispose();
+                }
             }
             catch
             {
