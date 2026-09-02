@@ -4,7 +4,7 @@ using Pesu.Core.Models;
 using Pesu.Core.Services;
 using Windows.Media.SpeechRecognition;
 
-namespace Pesu.Infrastructure.Services;
+namespace Pesu.Windows.Services;
 
 public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 {
@@ -66,7 +66,6 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         }
         catch
         {
-            // Best effort stop.
         }
 
         recognizer.ContinuousRecognitionSession.ResultGenerated -= OnResultGenerated;

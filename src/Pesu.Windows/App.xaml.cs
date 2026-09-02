@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
+using Pesu.Core.Services;
 using Pesu.Core.ViewModels;
 using Pesu.Infrastructure;
+using Pesu.Windows.Services;
 
 namespace Pesu.Windows;
 
@@ -14,6 +16,7 @@ public partial class App : Application
         InitializeComponent();
         var services = new ServiceCollection();
         services.AddPesuInfrastructure(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        services.AddSingleton<IAudioCaptureService, WindowsLiveAudioCaptureService>();
         services.AddSingleton<MainWindow>();
         _serviceProvider = services.BuildServiceProvider();
     }

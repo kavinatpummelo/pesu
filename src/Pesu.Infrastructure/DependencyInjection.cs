@@ -13,7 +13,7 @@ public static class DependencyInjection
     {
         var dbPath = Path.Combine(appDataRoot, "Pesu", "pesu.sqlite3");
         services.AddSingleton<IMeetingRepository>(_ => new SqliteMeetingRepository(dbPath));
-        services.AddSingleton<IAudioCaptureService, WindowsLiveAudioCaptureService>();
+        services.AddSingleton<IAudioCaptureService, NoOpAudioCaptureService>();
         services.AddSingleton<ICalendarService, CalendarServiceStub>();
         services.AddSingleton<INotesService, LocalNotesServiceStub>();
         services.AddSingleton<ICredentialStore, InMemoryCredentialStore>();
