@@ -36,7 +36,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             options.Add(new MicrophoneOption(
                 i.ToString(CultureInfo.InvariantCulture),
                 caps.ProductName,
-                $"{caps.Channels} channel(s), {caps.ManufacturerId}"
+                $"{caps.Channels} channel(s)"
             ));
         }
 
