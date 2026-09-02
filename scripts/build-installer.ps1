@@ -33,11 +33,30 @@ function Resolve-IsccPath {
 
     $commonPaths = @(
         "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+        "${env:ProgramW6432}\Inno Setup 6\ISCC.exe",
+        "${env:LOCALAPPDATA}\Programs\Inno Setup 6\ISCC.exe"
     )
     foreach ($candidate in $commonPaths) {
         if (Test-Path $candidate) {
             return $candidate
+        }
+    }
+
+    $registryKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"
+    )
+    foreach ($key in $registryKeys) {
+        if (Test-Path $key) {
+            $installLocation = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).InstallLocation
+            if (-not [string]::IsNullOrWhiteSpace($installLocation)) {
+                $candidate = Join-Path $installLocation "ISCC.exe"
+                if (Test-Path $candidate) {
+                    return $candidate
+                }
+            }
         }
     }
 
