@@ -66,35 +66,18 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             throw new InvalidOperationException("No Windows speech recognizer is installed. Install a Speech language pack in Windows Settings.");
         }
 
-        var deviceNumber = ParseDeviceNumber(microphoneDeviceId);
-        var waveFormat = new WaveFormat(16000, 16, 1);
-        _audioStream = new QueueWaveStream(waveFormat.AverageBytesPerSecond * 2);
-
-        _waveIn = new WaveInEvent
-        {
-            DeviceNumber = deviceNumber,
-            WaveFormat = waveFormat,
-            BufferMilliseconds = 200,
-            NumberOfBuffers = 3
-        };
-        _waveIn.DataAvailable += OnWaveDataAvailable;
-        _waveIn.StartRecording();
-
         _recognizer = new SpeechRecognitionEngine(recognizerInfo);
         _recognizer.LoadGrammar(new DictationGrammar());
-        _recognizer.SetInputToAudioStream(
-            _audioStream,
-            new SpeechAudioFormatInfo(
-                EncodingFormat.Pcm,
-                waveFormat.SampleRate,
-                waveFormat.BitsPerSample,
-                waveFormat.Channels,
-                waveFormat.AverageBytesPerSecond,
-                waveFormat.BlockAlign,
-                null));
+        var configuredInputMessage = ConfigureAudioInput(microphoneDeviceId);
         _recognizer.SpeechRecognized += OnSpeechRecognized;
         _recognizer.RecognizeCompleted += OnRecognizeCompleted;
         _recognizer.RecognizeAsync(RecognizeMode.Multiple);
+
+        if (!string.IsNullOrWhiteSpace(configuredInputMessage))
+        {
+            RaiseSystemMessage(configuredInputMessage);
+        }
+
         await Task.CompletedTask;
     }
 
@@ -107,14 +90,77 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         }
     }
 
-    private static int ParseDeviceNumber(string? id)
+    private string? ConfigureAudioInput(string? microphoneDeviceId)
     {
-        if (string.IsNullOrWhiteSpace(id) || id.Equals("default", StringComparison.OrdinalIgnoreCase))
+        if (_recognizer is null)
         {
-            return 0;
+            return "Speech recognizer is not initialized.";
         }
 
-        return int.TryParse(id, out var parsed) ? parsed : 0;
+        if (string.IsNullOrWhiteSpace(microphoneDeviceId) || microphoneDeviceId.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            _recognizer.SetInputToDefaultAudioDevice();
+            return null;
+        }
+
+        if (!int.TryParse(microphoneDeviceId, out var parsedDeviceNumber))
+        {
+            _recognizer.SetInputToDefaultAudioDevice();
+            return "Invalid microphone selection. Using system default microphone.";
+        }
+
+        if (parsedDeviceNumber < 0 || parsedDeviceNumber >= WaveIn.DeviceCount)
+        {
+            _recognizer.SetInputToDefaultAudioDevice();
+            return "Selected microphone is unavailable. Using system default microphone.";
+        }
+
+        try
+        {
+            var waveFormat = new WaveFormat(16000, 16, 1);
+            _audioStream = new QueueWaveStream(waveFormat.AverageBytesPerSecond * 2);
+            _waveIn = new WaveInEvent
+            {
+                DeviceNumber = parsedDeviceNumber,
+                WaveFormat = waveFormat,
+                BufferMilliseconds = 200,
+                NumberOfBuffers = 3
+            };
+            _waveIn.DataAvailable += OnWaveDataAvailable;
+            _waveIn.StartRecording();
+
+            _recognizer.SetInputToAudioStream(
+                _audioStream,
+                new SpeechAudioFormatInfo(
+                    EncodingFormat.Pcm,
+                    waveFormat.SampleRate,
+                    waveFormat.BitsPerSample,
+                    waveFormat.Channels,
+                    waveFormat.AverageBytesPerSecond,
+                    waveFormat.BlockAlign,
+                    null));
+
+            return null;
+        }
+        catch
+        {
+            try
+            {
+                _waveIn?.DataAvailable -= OnWaveDataAvailable;
+                _waveIn?.StopRecording();
+                _waveIn?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _waveIn = null;
+            _audioStream?.Dispose();
+            _audioStream = null;
+
+            _recognizer.SetInputToDefaultAudioDevice();
+            return "Could not open selected microphone. Using system default microphone.";
+        }
     }
 
     private async Task StopInternalAsync()
@@ -207,7 +253,11 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             return;
         }
 
-        var message = $"Speech recognition stopped: {args.Error.Message}";
+        RaiseSystemMessage($"Speech recognition stopped: {args.Error.Message}");
+    }
+
+    private void RaiseSystemMessage(string message)
+    {
         var seconds = (int)Math.Max(0, _stopwatch.Elapsed.TotalSeconds);
         var timestamp = $"{seconds / 60:00}:{seconds % 60:00}";
         RaiseTranscriptSegment(new TranscriptSegment(Guid.NewGuid().ToString("N"), timestamp, "System", message));
