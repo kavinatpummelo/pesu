@@ -27,7 +27,7 @@ This repository now contains the first implementation pass of a Windows-native r
   - Summary
 - Added local SQLite repository scaffold with schema and JSON persistence.
 - Added DI wiring and seed data to boot the app with realistic sample meetings.
-- Added live microphone speech transcription using Windows Speech Recognition (dictation scenario).
+- Added live microphone speech transcription using the Windows speech recognizer (`System.Speech`) with dictation grammar.
 
 ## Build (on Windows)
 

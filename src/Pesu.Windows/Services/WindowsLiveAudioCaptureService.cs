@@ -1,8 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Speech.Recognition;
 using System.Threading;
 using Pesu.Core.Models;
 using Pesu.Core.Services;
-using Windows.Media.SpeechRecognition;
 
 namespace Pesu.Windows.Services;
 
@@ -10,7 +11,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 {
     private readonly List<TranscriptSegment> _segments = [];
     private readonly object _sync = new();
-    private SpeechRecognizer? _recognizer;
+    private SpeechRecognitionEngine? _recognizer;
     private Stopwatch _stopwatch = new();
     private SynchronizationContext? _uiContext;
 
@@ -27,20 +28,25 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         _uiContext = SynchronizationContext.Current;
         _stopwatch = Stopwatch.StartNew();
 
-        _recognizer = new SpeechRecognizer();
-        _recognizer.Constraints.Clear();
-        _recognizer.Constraints.Add(new SpeechRecognitionTopicConstraint(SpeechRecognitionScenario.Dictation, "dictation"));
+        var recognizerInfo = SpeechRecognitionEngine.InstalledRecognizers()
+            .FirstOrDefault(info =>
+                info.Culture.Equals(CultureInfo.CurrentUICulture)
+                || info.Culture.TwoLetterISOLanguageName == CultureInfo.CurrentUICulture.TwoLetterISOLanguageName)
+            ?? SpeechRecognitionEngine.InstalledRecognizers().FirstOrDefault();
 
-        var compiled = await _recognizer.CompileConstraintsAsync().AsTask(cancellationToken);
-        if (compiled.Status != SpeechRecognitionResultStatus.Success)
+        if (recognizerInfo is null)
         {
             await StopInternalAsync();
-            throw new InvalidOperationException($"Speech recognition setup failed: {compiled.Status}");
+            throw new InvalidOperationException("No Windows speech recognizer is installed. Install a Speech language pack in Windows Settings.");
         }
 
-        _recognizer.ContinuousRecognitionSession.ResultGenerated += OnResultGenerated;
-        _recognizer.ContinuousRecognitionSession.Completed += OnCompleted;
-        await _recognizer.ContinuousRecognitionSession.StartAsync().AsTask(cancellationToken);
+        _recognizer = new SpeechRecognitionEngine(recognizerInfo);
+        _recognizer.SetInputToDefaultAudioDevice();
+        _recognizer.LoadGrammar(new DictationGrammar());
+        _recognizer.SpeechRecognized += OnSpeechRecognized;
+        _recognizer.RecognizeCompleted += OnRecognizeCompleted;
+        _recognizer.RecognizeAsync(RecognizeMode.Multiple);
+        await Task.CompletedTask;
     }
 
     public async Task<IReadOnlyList<TranscriptSegment>> StopAsync(CancellationToken cancellationToken = default)
@@ -62,24 +68,32 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 
         try
         {
-            await recognizer.ContinuousRecognitionSession.StopAsync();
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<RecognizeCompletedEventArgs>? handler = null;
+            handler = (_, _) =>
+            {
+                recognizer.RecognizeCompleted -= handler;
+                tcs.TrySetResult(true);
+            };
+
+            recognizer.RecognizeCompleted += handler;
+            recognizer.RecognizeAsyncStop();
+            await tcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
         }
         catch
         {
         }
 
-        recognizer.ContinuousRecognitionSession.ResultGenerated -= OnResultGenerated;
-        recognizer.ContinuousRecognitionSession.Completed -= OnCompleted;
+        recognizer.SpeechRecognized -= OnSpeechRecognized;
+        recognizer.RecognizeCompleted -= OnRecognizeCompleted;
         recognizer.Dispose();
         _recognizer = null;
         _stopwatch.Stop();
     }
 
-    private void OnResultGenerated(
-        SpeechContinuousRecognitionSession sender,
-        SpeechContinuousRecognitionResultGeneratedEventArgs args)
+    private void OnSpeechRecognized(object? sender, SpeechRecognizedEventArgs args)
     {
-        if (args.Result.Status != SpeechRecognitionResultStatus.Success)
+        if (args.Result is null || args.Result.Confidence < 0.35f)
         {
             return;
         }
@@ -102,23 +116,14 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         RaiseTranscriptSegment(segment);
     }
 
-    private void OnCompleted(
-        SpeechContinuousRecognitionSession sender,
-        SpeechContinuousRecognitionCompletedEventArgs args)
+    private void OnRecognizeCompleted(object? sender, RecognizeCompletedEventArgs args)
     {
-        if (args.Status == SpeechRecognitionResultStatus.Success || args.Status == SpeechRecognitionResultStatus.TimeoutExceeded)
+        if (args.Cancelled || args.Error is null)
         {
             return;
         }
 
-        var statusText = args.Status.ToString();
-        var message = statusText.Contains("Privacy", StringComparison.OrdinalIgnoreCase)
-            ? "Speech privacy settings are disabled."
-            : args.Status switch
-            {
-                SpeechRecognitionResultStatus.AudioQualityFailure => "Microphone audio quality is too low.",
-                _ => $"Speech recognition stopped: {args.Status}"
-            };
+        var message = $"Speech recognition stopped: {args.Error.Message}";
 
         var seconds = (int)Math.Max(0, _stopwatch.Elapsed.TotalSeconds);
         var timestamp = $"{seconds / 60:00}:{seconds % 60:00}";
