@@ -18,7 +18,6 @@ public sealed partial class MainWindow : Window
     public void SetViewModel(MainViewModel viewModel)
     {
         _viewModel = viewModel;
-        DataContext = _viewModel;
         ShellNav.SelectedItem = ShellNav.MenuItems.OfType<NavigationViewItem>().First();
         Navigate(AppScreen.Present);
     }
