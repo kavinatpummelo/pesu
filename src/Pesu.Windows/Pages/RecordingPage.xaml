@@ -14,7 +14,7 @@
 
             <Border Padding="18" Background="White" CornerRadius="12">
                 <TextBlock
-                    Text="During implementation this panel will show live transcript fragments with final-segment replacement, matching the mac app flow."
+                    Text="{Binding LiveTranscriptDisplay}"
                     TextWrapping="Wrap"
                     Foreground="{StaticResource PesuMutedBrush}" />
             </Border>

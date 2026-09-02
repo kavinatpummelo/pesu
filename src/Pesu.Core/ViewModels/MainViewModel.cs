@@ -14,6 +14,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _isRecording;
     private bool _isStartingRecording;
     private string _captureStatus = "Ready";
+    private string _liveTranscriptDisplay = "Start speaking and your live transcript will appear here.";
     private string _calendarStatus = "Not connected";
     private string _calendarDetail = "Connect your calendar source in Settings.";
 
@@ -25,6 +26,7 @@ public sealed class MainViewModel : ObservableObject
         _meetingRepository = meetingRepository;
         _audioCaptureService = audioCaptureService;
         _notesService = notesService;
+        _audioCaptureService.TranscriptSegmentCaptured += OnTranscriptSegmentCaptured;
         Meetings = new List<Meeting>();
         NewRecordingCommand = new RelayCommand(StartRecording);
         StopRecordingCommand = new RelayCommand(StopRecording, () => IsRecording);
@@ -74,6 +76,12 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _calendarDetail, value);
     }
 
+    public string LiveTranscriptDisplay
+    {
+        get => _liveTranscriptDisplay;
+        private set => SetProperty(ref _liveTranscriptDisplay, value);
+    }
+
     public RelayCommand NewRecordingCommand { get; }
     public RelayCommand StopRecordingCommand { get; }
 
@@ -114,6 +122,7 @@ public sealed class MainViewModel : ObservableObject
         _isStartingRecording = true;
         IsRecording = true;
         CaptureStatus = "Preparing local capture...";
+        LiveTranscriptDisplay = "Listening...";
         CurrentScreen = AppScreen.Recording;
         _ = StartRecordingAsync();
     }
@@ -153,6 +162,9 @@ public sealed class MainViewModel : ObservableObject
         {
             CaptureStatus = "Finalizing transcript locally...";
             var transcript = await _audioCaptureService.StopAsync();
+            LiveTranscriptDisplay = transcript.Count == 0
+                ? "No speech captured."
+                : string.Join(Environment.NewLine, transcript.Select(t => $"[{t.Timestamp}] {t.Speaker}: {t.Text}"));
             var notes = await _notesService.BuildNotesAsync(transcript);
             var now = DateTimeOffset.Now;
             var duration = TimeSpan.FromMinutes(Math.Max(1, transcript.Count * 2));
@@ -195,5 +207,22 @@ public sealed class MainViewModel : ObservableObject
         RaisePropertyChanged(nameof(PresentMeetings));
         RaisePropertyChanged(nameof(PastMeetings));
         RaisePropertyChanged(nameof(FutureMeetings));
+    }
+
+    private void OnTranscriptSegmentCaptured(object? sender, TranscriptSegment segment)
+    {
+        var existing = LiveTranscriptDisplay;
+        var line = $"[{segment.Timestamp}] {segment.Speaker}: {segment.Text}";
+
+        if (existing.StartsWith("Start speaking", StringComparison.OrdinalIgnoreCase) ||
+            existing.Equals("Listening...", StringComparison.OrdinalIgnoreCase) ||
+            existing.Equals("No speech captured.", StringComparison.OrdinalIgnoreCase))
+        {
+            LiveTranscriptDisplay = line;
+            return;
+        }
+
+        var combined = existing + Environment.NewLine + line;
+        LiveTranscriptDisplay = combined.Length > 4000 ? combined[^4000..] : combined;
     }
 }

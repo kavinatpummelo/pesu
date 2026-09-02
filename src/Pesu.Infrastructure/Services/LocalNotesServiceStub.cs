@@ -10,13 +10,55 @@ public sealed class LocalNotesServiceStub : INotesService
         CancellationToken cancellationToken = default
     )
     {
-        IReadOnlyList<Decision> decisions =
-        [
-            new Decision("01", "Proceed with the WinUI 3 shell and sidebar parity first.", transcript.FirstOrDefault()?.Id ?? string.Empty),
-            new Decision("02", "Keep all transcript and audio data local by default.", transcript.LastOrDefault()?.Id ?? string.Empty)
-        ];
+        if (transcript.Count == 0)
+        {
+            return Task.FromResult<(string Brief, IReadOnlyList<Decision> Decisions)>(
+                ("No speech was captured for this recording.", Array.Empty<Decision>())
+            );
+        }
 
-        const string brief = "This meeting confirmed that the first Windows milestone is a native WinUI shell with local-first recording and summary workflow parity.";
-        return Task.FromResult((brief, decisions));
+        var briefSource = string.Join(" ", transcript.Take(3).Select(t => t.Text.Trim()));
+        var brief = briefSource.Length > 280
+            ? briefSource[..280] + "..."
+            : briefSource;
+
+        var decisions = transcript
+            .Where(t => ContainsActionCue(t.Text))
+            .Take(5)
+            .Select((t, index) => new Decision($"{index + 1:00}", NormalizeDecision(t.Text), t.Id))
+            .ToList();
+
+        if (decisions.Count == 0)
+        {
+            decisions = transcript
+                .Take(3)
+                .Select((t, index) => new Decision($"{index + 1:00}", NormalizeDecision(t.Text), t.Id))
+                .ToList();
+        }
+
+        return Task.FromResult<(string Brief, IReadOnlyList<Decision> Decisions)>((brief, decisions));
+    }
+
+    private static bool ContainsActionCue(string text)
+    {
+        var lower = text.ToLowerInvariant();
+        return lower.Contains("will ") ||
+               lower.Contains("should ") ||
+               lower.Contains("need to") ||
+               lower.Contains("decide") ||
+               lower.Contains("next") ||
+               lower.Contains("action");
+    }
+
+    private static string NormalizeDecision(string text)
+    {
+        var cleaned = text.Trim();
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return "No clear decision text.";
+        }
+
+        cleaned = char.ToUpperInvariant(cleaned[0]) + cleaned[1..];
+        return cleaned.EndsWith('.') ? cleaned : cleaned + ".";
     }
 }
