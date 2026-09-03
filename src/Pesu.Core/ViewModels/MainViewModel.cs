@@ -162,7 +162,7 @@ public sealed class MainViewModel : ObservableObject
         {
             IsRecording = false;
             CaptureStatus = $"Recording failed: {ex.Message}";
-            LiveTranscriptDisplay = "Microphone could not be started. Check Settings > Recording and Windows microphone permissions.";
+            LiveTranscriptDisplay = $"Microphone could not be started: {ex.Message}";
             CurrentScreen = AppScreen.Recording;
         }
         finally
