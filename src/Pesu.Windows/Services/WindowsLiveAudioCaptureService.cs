@@ -17,6 +17,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
     private readonly object _sync = new();
     private SpeechRecognitionEngine? _recognizer;
     private WaveInEvent? _waveIn;
+    private WasapiCapture? _defaultMicrophoneCapture;
     private QueueWaveStream? _audioStream;
     private WasapiLoopbackCapture? _systemAudioCapture;
     private WaveFileWriter? _microphoneWriter;
@@ -69,23 +70,53 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
                 || info.Culture.TwoLetterISOLanguageName == CultureInfo.CurrentUICulture.TwoLetterISOLanguageName)
             ?? SpeechRecognitionEngine.InstalledRecognizers().FirstOrDefault();
 
-        if (recognizerInfo is null)
-        {
-            await StopInternalAsync();
-            throw new InvalidOperationException("No Windows speech recognizer is installed. Install a Speech language pack in Windows Settings.");
-        }
-
-        _recognizer = new SpeechRecognitionEngine(recognizerInfo);
-        _recognizer.LoadGrammar(new DictationGrammar());
         try
         {
+            string? recognitionMessage = null;
+            if (recognizerInfo is null)
+            {
+                recognitionMessage = "No Windows speech recognizer is installed. Audio is recording, but live transcription is unavailable.";
+            }
+            else
+            {
+                try
+                {
+                    _recognizer = new SpeechRecognitionEngine(recognizerInfo);
+                    _recognizer.LoadGrammar(new DictationGrammar());
+                }
+                catch (Exception ex)
+                {
+                    _recognizer?.Dispose();
+                    _recognizer = null;
+                    recognitionMessage = $"Windows speech recognition is unavailable ({ex.Message}). Audio is recording without live transcription.";
+                }
+            }
+
             CreateAudioFiles();
             var configuredInputMessage = ConfigureAudioInput(microphoneDeviceId);
-            _recognizer.SpeechRecognized += OnSpeechRecognized;
-            _recognizer.RecognizeCompleted += OnRecognizeCompleted;
-            _recognizer.RecognizeAsync(RecognizeMode.Multiple);
+            if (_recognizer is not null)
+            {
+                try
+                {
+                    _recognizer.SpeechRecognized += OnSpeechRecognized;
+                    _recognizer.RecognizeCompleted += OnRecognizeCompleted;
+                    _recognizer.RecognizeAsync(RecognizeMode.Multiple);
+                }
+                catch (Exception ex)
+                {
+                    _recognizer.SpeechRecognized -= OnSpeechRecognized;
+                    _recognizer.RecognizeCompleted -= OnRecognizeCompleted;
+                    _recognizer.Dispose();
+                    _recognizer = null;
+                    recognitionMessage = $"Windows speech recognition could not start ({ex.Message}). Audio is recording without live transcription.";
+                }
+            }
             StartSystemAudioCapture();
 
+            if (!string.IsNullOrWhiteSpace(recognitionMessage))
+            {
+                RaiseSystemMessage(recognitionMessage);
+            }
             if (!string.IsNullOrWhiteSpace(configuredInputMessage))
             {
                 RaiseSystemMessage(configuredInputMessage);
@@ -111,11 +142,6 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 
     private string? ConfigureAudioInput(string? microphoneDeviceId)
     {
-        if (_recognizer is null)
-        {
-            return "Speech recognizer is not initialized.";
-        }
-
         var useDefaultDevice = string.IsNullOrWhiteSpace(microphoneDeviceId) ||
             microphoneDeviceId.Equals("default", StringComparison.OrdinalIgnoreCase);
         var deviceNumber = -1;
@@ -147,7 +173,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             _waveIn.DataAvailable += OnWaveDataAvailable;
             _waveIn.StartRecording();
 
-            _recognizer.SetInputToAudioStream(
+            _recognizer?.SetInputToAudioStream(
                 _audioStream,
                 new SpeechAudioFormatInfo(
                     EncodingFormat.Pcm,
@@ -158,7 +184,9 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
                     waveFormat.BlockAlign,
                     null));
 
-            return null;
+            return _recognizer is null
+                ? "Audio is recording, but live transcription is unavailable."
+                : null;
         }
         catch (Exception ex)
         {
@@ -183,12 +211,51 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 
             if (useDefaultDevice)
             {
-                MicrophoneAudioPath = null;
-                _recognizer.SetInputToDefaultAudioDevice();
-                return "Microphone WAV capture is unavailable; live transcription is using the Windows default microphone.";
+                return StartDefaultMicrophoneCapture();
             }
 
             throw new InvalidOperationException("Could not open the selected microphone. Check Windows microphone permissions and that no other app is using it.", ex);
+        }
+    }
+
+    private string StartDefaultMicrophoneCapture()
+    {
+        try
+        {
+            _defaultMicrophoneCapture = new WasapiCapture();
+            if (MicrophoneAudioPath is not null)
+            {
+                _microphoneWriter = new WaveFileWriter(MicrophoneAudioPath, _defaultMicrophoneCapture.WaveFormat);
+            }
+            _defaultMicrophoneCapture.DataAvailable += OnDefaultMicrophoneDataAvailable;
+            _defaultMicrophoneCapture.StartRecording();
+            return _recognizer is null
+                ? "Audio is recording, but live transcription is unavailable."
+                : SetDefaultRecognizerInput();
+        }
+        catch (Exception wasapiException)
+        {
+            _defaultMicrophoneCapture?.Dispose();
+            _defaultMicrophoneCapture = null;
+            _microphoneWriter?.Dispose();
+            _microphoneWriter = null;
+            MicrophoneAudioPath = null;
+            return $"Raw microphone capture is unavailable ({wasapiException.Message}).";
+        }
+    }
+
+    private string SetDefaultRecognizerInput()
+    {
+        try
+        {
+            _recognizer?.SetInputToDefaultAudioDevice();
+            return "Recording the Windows default microphone through WASAPI.";
+        }
+        catch (Exception ex)
+        {
+            _recognizer?.Dispose();
+            _recognizer = null;
+            return $"Audio is recording, but live transcription is unavailable ({ex.Message}).";
         }
     }
 
@@ -248,6 +315,21 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             }
             waveIn.Dispose();
             _waveIn = null;
+        }
+
+        var defaultMicrophoneCapture = _defaultMicrophoneCapture;
+        if (defaultMicrophoneCapture is not null)
+        {
+            try
+            {
+                defaultMicrophoneCapture.DataAvailable -= OnDefaultMicrophoneDataAvailable;
+                defaultMicrophoneCapture.StopRecording();
+            }
+            catch
+            {
+            }
+            defaultMicrophoneCapture.Dispose();
+            _defaultMicrophoneCapture = null;
         }
 
         var systemAudioCapture = _systemAudioCapture;
@@ -312,6 +394,11 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
     private void OnSystemAudioDataAvailable(object? sender, WaveInEventArgs e)
     {
         _systemAudioWriter?.Write(e.Buffer, 0, e.BytesRecorded);
+    }
+
+    private void OnDefaultMicrophoneDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        _microphoneWriter?.Write(e.Buffer, 0, e.BytesRecorded);
     }
 
     private void OnSpeechRecognized(object? sender, SpeechRecognizedEventArgs args)
