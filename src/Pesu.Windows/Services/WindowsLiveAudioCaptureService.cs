@@ -17,7 +17,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
     private readonly object _sync = new();
     private SpeechRecognitionEngine? _recognizer;
     private WaveInEvent? _waveIn;
-    private WasapiCapture? _defaultMicrophoneCapture;
+    private WaveInEvent? _defaultMicrophoneCapture;
     private QueueWaveStream? _audioStream;
     private WasapiLoopbackCapture? _systemAudioCapture;
     private WaveFileWriter? _microphoneWriter;
@@ -222,10 +222,17 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
     {
         try
         {
-            _defaultMicrophoneCapture = new WasapiCapture();
+            var waveFormat = new WaveFormat(16000, 16, 1);
+            _defaultMicrophoneCapture = new WaveInEvent
+            {
+                DeviceNumber = 0,
+                WaveFormat = waveFormat,
+                BufferMilliseconds = 200,
+                NumberOfBuffers = 3
+            };
             if (MicrophoneAudioPath is not null)
             {
-                _microphoneWriter = new WaveFileWriter(MicrophoneAudioPath, _defaultMicrophoneCapture.WaveFormat);
+                _microphoneWriter = new WaveFileWriter(MicrophoneAudioPath, waveFormat);
             }
             _defaultMicrophoneCapture.DataAvailable += OnDefaultMicrophoneDataAvailable;
             _defaultMicrophoneCapture.StartRecording();
@@ -249,7 +256,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
         try
         {
             _recognizer?.SetInputToDefaultAudioDevice();
-            return "Recording the Windows default microphone through WASAPI.";
+            return "Recording the Windows default microphone through the fallback input device.";
         }
         catch (Exception ex)
         {
