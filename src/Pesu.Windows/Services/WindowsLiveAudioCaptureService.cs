@@ -181,6 +181,13 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             _audioStream?.Dispose();
             _audioStream = null;
 
+            if (useDefaultDevice)
+            {
+                MicrophoneAudioPath = null;
+                _recognizer.SetInputToDefaultAudioDevice();
+                return "Microphone WAV capture is unavailable; live transcription is using the Windows default microphone.";
+            }
+
             throw new InvalidOperationException("Could not open the selected microphone. Check Windows microphone permissions and that no other app is using it.", ex);
         }
     }
