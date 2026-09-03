@@ -156,7 +156,7 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             await _audioCaptureService.StartAsync(microphoneDeviceId: SelectedMicrophoneId);
-            CaptureStatus = "Recording system audio + microphone locally";
+            CaptureStatus = "Recording microphone and system audio locally";
         }
         catch (Exception ex)
         {
@@ -196,8 +196,8 @@ public sealed class MainViewModel : ObservableObject
                 notes.Brief,
                 notes.Decisions,
                 transcript,
-                null,
-                null,
+                _audioCaptureService.SystemAudioPath,
+                _audioCaptureService.MicrophoneAudioPath,
                 false,
                 "Local Recording"
             );

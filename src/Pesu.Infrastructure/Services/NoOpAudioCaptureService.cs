@@ -7,6 +7,9 @@ public sealed class NoOpAudioCaptureService : IAudioCaptureService
 {
     public event EventHandler<TranscriptSegment>? TranscriptSegmentCaptured;
 
+    public string? SystemAudioPath => null;
+    public string? MicrophoneAudioPath => null;
+
     public IReadOnlyList<MicrophoneOption> GetAvailableMicrophones()
     {
         return

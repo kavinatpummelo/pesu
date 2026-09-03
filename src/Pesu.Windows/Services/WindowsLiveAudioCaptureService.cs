@@ -18,10 +18,16 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
     private SpeechRecognitionEngine? _recognizer;
     private WaveInEvent? _waveIn;
     private QueueWaveStream? _audioStream;
+    private WasapiLoopbackCapture? _systemAudioCapture;
+    private WaveFileWriter? _microphoneWriter;
+    private WaveFileWriter? _systemAudioWriter;
     private Stopwatch _stopwatch = new();
     private SynchronizationContext? _uiContext;
 
     public event EventHandler<TranscriptSegment>? TranscriptSegmentCaptured;
+
+    public string? SystemAudioPath { get; private set; }
+    public string? MicrophoneAudioPath { get; private set; }
 
     public IReadOnlyList<MicrophoneOption> GetAvailableMicrophones()
     {
@@ -51,6 +57,9 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             _segments.Clear();
         }
 
+        SystemAudioPath = null;
+        MicrophoneAudioPath = null;
+
         _uiContext = SynchronizationContext.Current;
         _stopwatch = Stopwatch.StartNew();
 
@@ -68,14 +77,24 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 
         _recognizer = new SpeechRecognitionEngine(recognizerInfo);
         _recognizer.LoadGrammar(new DictationGrammar());
-        var configuredInputMessage = ConfigureAudioInput(microphoneDeviceId);
-        _recognizer.SpeechRecognized += OnSpeechRecognized;
-        _recognizer.RecognizeCompleted += OnRecognizeCompleted;
-        _recognizer.RecognizeAsync(RecognizeMode.Multiple);
-
-        if (!string.IsNullOrWhiteSpace(configuredInputMessage))
+        try
         {
-            RaiseSystemMessage(configuredInputMessage);
+            CreateAudioFiles();
+            var configuredInputMessage = ConfigureAudioInput(microphoneDeviceId);
+            _recognizer.SpeechRecognized += OnSpeechRecognized;
+            _recognizer.RecognizeCompleted += OnRecognizeCompleted;
+            _recognizer.RecognizeAsync(RecognizeMode.Multiple);
+            StartSystemAudioCapture();
+
+            if (!string.IsNullOrWhiteSpace(configuredInputMessage))
+            {
+                RaiseSystemMessage(configuredInputMessage);
+            }
+        }
+        catch
+        {
+            await StopInternalAsync();
+            throw;
         }
 
         await Task.CompletedTask;
@@ -97,22 +116,17 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             return "Speech recognizer is not initialized.";
         }
 
-        if (string.IsNullOrWhiteSpace(microphoneDeviceId) || microphoneDeviceId.Equals("default", StringComparison.OrdinalIgnoreCase))
+        var useDefaultDevice = string.IsNullOrWhiteSpace(microphoneDeviceId) ||
+            microphoneDeviceId.Equals("default", StringComparison.OrdinalIgnoreCase);
+        var deviceNumber = -1;
+        if (!useDefaultDevice && !int.TryParse(microphoneDeviceId, out deviceNumber))
         {
-            _recognizer.SetInputToDefaultAudioDevice();
-            return null;
+            throw new InvalidOperationException("The selected microphone is invalid.");
         }
 
-        if (!int.TryParse(microphoneDeviceId, out var parsedDeviceNumber))
+        if (!useDefaultDevice && (deviceNumber < 0 || deviceNumber >= WaveIn.DeviceCount))
         {
-            _recognizer.SetInputToDefaultAudioDevice();
-            return "Invalid microphone selection. Using system default microphone.";
-        }
-
-        if (parsedDeviceNumber < 0 || parsedDeviceNumber >= WaveIn.DeviceCount)
-        {
-            _recognizer.SetInputToDefaultAudioDevice();
-            return "Selected microphone is unavailable. Using system default microphone.";
+            throw new InvalidOperationException("The selected microphone is unavailable.");
         }
 
         try
@@ -121,11 +135,15 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             _audioStream = new QueueWaveStream(waveFormat.AverageBytesPerSecond * 2);
             _waveIn = new WaveInEvent
             {
-                DeviceNumber = parsedDeviceNumber,
+                DeviceNumber = deviceNumber,
                 WaveFormat = waveFormat,
                 BufferMilliseconds = 200,
                 NumberOfBuffers = 3
             };
+            if (MicrophoneAudioPath is not null)
+            {
+                _microphoneWriter = new WaveFileWriter(MicrophoneAudioPath, waveFormat);
+            }
             _waveIn.DataAvailable += OnWaveDataAvailable;
             _waveIn.StartRecording();
 
@@ -142,7 +160,7 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 
             return null;
         }
-        catch
+        catch (Exception ex)
         {
             try
             {
@@ -158,11 +176,50 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             }
 
             _waveIn = null;
+            _microphoneWriter?.Dispose();
+            _microphoneWriter = null;
             _audioStream?.Dispose();
             _audioStream = null;
 
-            _recognizer.SetInputToDefaultAudioDevice();
-            return "Could not open selected microphone. Using system default microphone.";
+            throw new InvalidOperationException("Could not open the selected microphone. Check Windows microphone permissions and that no other app is using it.", ex);
+        }
+    }
+
+    private void CreateAudioFiles()
+    {
+        var recordingsDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Pesu",
+            "Recordings");
+        Directory.CreateDirectory(recordingsDirectory);
+
+        var recordingId = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
+        MicrophoneAudioPath = Path.Combine(recordingsDirectory, $"{recordingId}-microphone.wav");
+        SystemAudioPath = Path.Combine(recordingsDirectory, $"{recordingId}-system.wav");
+    }
+
+    private void StartSystemAudioCapture()
+    {
+        if (SystemAudioPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _systemAudioCapture = new WasapiLoopbackCapture();
+            _systemAudioWriter = new WaveFileWriter(SystemAudioPath, _systemAudioCapture.WaveFormat);
+            _systemAudioCapture.DataAvailable += OnSystemAudioDataAvailable;
+            _systemAudioCapture.StartRecording();
+        }
+        catch (Exception ex)
+        {
+            _systemAudioWriter?.Dispose();
+            _systemAudioWriter = null;
+            _systemAudioCapture?.Dispose();
+            _systemAudioCapture = null;
+            SystemAudioPath = null;
+            RaiseSystemMessage($"System audio could not be captured: {ex.Message}");
         }
     }
 
@@ -185,6 +242,26 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
             waveIn.Dispose();
             _waveIn = null;
         }
+
+        var systemAudioCapture = _systemAudioCapture;
+        if (systemAudioCapture is not null)
+        {
+            try
+            {
+                systemAudioCapture.DataAvailable -= OnSystemAudioDataAvailable;
+                systemAudioCapture.StopRecording();
+            }
+            catch
+            {
+            }
+            systemAudioCapture.Dispose();
+            _systemAudioCapture = null;
+        }
+
+        _microphoneWriter?.Dispose();
+        _microphoneWriter = null;
+        _systemAudioWriter?.Dispose();
+        _systemAudioWriter = null;
 
         audioStream?.Complete();
 
@@ -221,7 +298,13 @@ public sealed class WindowsLiveAudioCaptureService : IAudioCaptureService
 
     private void OnWaveDataAvailable(object? sender, WaveInEventArgs e)
     {
+        _microphoneWriter?.Write(e.Buffer, 0, e.BytesRecorded);
         _audioStream?.Enqueue(e.Buffer, 0, e.BytesRecorded);
+    }
+
+    private void OnSystemAudioDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        _systemAudioWriter?.Write(e.Buffer, 0, e.BytesRecorded);
     }
 
     private void OnSpeechRecognized(object? sender, SpeechRecognizedEventArgs args)
